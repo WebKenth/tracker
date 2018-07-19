@@ -1,55 +1,95 @@
 let url = document.URL;
+let lastUrl;
+
+const EVENTS_UPLOAD_LIMIT = 0;
 
 prepareTracker();
-attachEvents();
 
-function prepareTracker(){
+function prepareTracker()
+{
     window.tracker = localStorage.getItem('tracker');
     if(!window.tracker)
         initializeTracker();
-    window.tracker = JSON.parse(localStorage.getItem('tracker'));
-    console.log('Tracker Prepared', {tracker});
-    checkForNavigation();
+    else{
+        window.tracker = JSON.parse(localStorage.getItem('tracker'));
+        console.log('Tracker Prepared', {tracker});
+        checkForNavigation();
+        attachEvents();
+    }
+}
+
+function uploadEvents()
+{
+    fetch('/api/event', {
+        method: 'POST',
+        headers:{
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            key: window.tracker.session,
+            events: window.tracker.events
+        })
+    }).then(response => response.json())
+    .then( response => {
+        console.log(response);
+        window.tracker.events = [];
+        updateLocalStorage();
+    }).catch(console.error);
 }
 
 function attachEvents()
 {
-    console.log('Attaching Events');
+    console.log('Attaching Events')
     document.onclick = event => logEvent(event, 'MouseEvent')
     document.oninput = event => logEvent(event, 'InputEvent')
-    window.onkeypress = event => logEvent(event, 'KeyboardEvent')
+    window.onkeydown = event => logEvent(event, 'KeyboardEvent')
 }
 
 function initializeTracker()
 {
     console.log('Tracker not present, initializing');
-    let sessionKey = guid();
-    console.log('New Tracking Session: '+sessionKey);
-    localStorage.setItem('tracker', JSON.stringify({
-        session: sessionKey,
+    
+    fetch('api/session', {
+    method: 'POST',
+    headers:{
+        'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({    
         client: {
             language: clientInformation.language,
             userAgent: clientInformation.userAgent,
             platform: clientInformation.platform
-        },
-        tracks: []
-    }));
+        }
+    })
+    }).then( response => response.json() )
+    .then(response => {
+        let sessionKey = response.key;
+        console.log('New Tracking Session: '+sessionKey);
+        localStorage.setItem('tracker', JSON.stringify({
+            session: sessionKey,
+            events: []
+        }));
+
+        window.tracker = JSON.parse(localStorage.getItem('tracker'));
+        console.log('Tracker Prepared', {tracker});
+        checkForNavigation();
+        attachEvents();
+    })
+    .catch(console.error);
 }
 
-function checkForNavigation(){
+function checkForNavigation()
+{
     console.log('Checking for Navigation Change');
+
+    lastUrl = getLastUrl();
     console.log({lastUrl, url});
 
-    let lastUrl = getLastUrl();
     if(lastUrl !== url)
     {
         console.log('Navigation change detected. Creating Navigation Event');
         localStorage.setItem('tracker_last_url', url);
-        tracker.tracks.push({
-            type: 'navigation',
-            from: lastUrl,
-            to: url
-        });
+        logEvent(new Event('Navigation'), 'Navigation');
         updateLocalStorage();
     }
 }
@@ -73,8 +113,11 @@ function logEvent(event, type)
     console.log('Event Caught');
     console.log(event);
     console.log(data);
-    tracker.tracks.push(data);
-    updateLocalStorage();
+    tracker.events.push(data);
+    if(tracker.events.length > EVENTS_UPLOAD_LIMIT && EVENTS_UPLOAD_LIMIT != 0)
+        uploadEvents();
+    else
+        updateLocalStorage();
 }
 
 function generateEventData(event, type)
@@ -87,6 +130,8 @@ function generateEventData(event, type)
         data = generateKeyboardEventData(data, event);
     if(type === 'InputEvent')
         data = generateInputEventData(data, event);
+    if(type === 'Navigation')
+        data = generateNavigationEventData(data, event);
 
     return data;
 }
@@ -122,7 +167,7 @@ function generateMouseEventData(data,event)
         'layerX'  ,'layerY',
     ];
     data.data.cursor_position = {}
-    for(field of eventFields)
+    for(let field of eventFields)
         data.data.cursor_position[field] = event[field];
     return data;
 }
@@ -138,7 +183,7 @@ function generateKeyboardEventData(data, event)
         'metaKey',
         'shiftKey',
     ];
-    for(field of eventFields)
+    for(let field of eventFields)
         data.data[field] = event[field];
     return data;
 }
@@ -149,13 +194,21 @@ function generateInputEventData(data, event)
         'inputType',
         'data',
     ];
-    for(field of eventFields)
+    for(let field of eventFields)
         data.data[field] = event[field];
+    return data;
+}
+
+function generateNavigationEventData(data, event)
+{
+    data.data['from'] = lastUrl;
+    data.data['to'] = url;
     return data;
 }
 
 function updateLocalStorage()
 {
+    console.log('Event Length',tracker.events.length);
     localStorage.setItem('tracker', JSON.stringify(tracker));
 }
 
@@ -166,6 +219,8 @@ function getElementFromEvent(event)
 
 function generateElementInformation(element,event)
 {
+    if(element === null) 
+        return {};
     let tree = generateElementSelector(event.path);
     return {
         tag: element.tagName,
@@ -184,9 +239,9 @@ function generateElementInformation(element,event)
 function generateElementSelector(path)
 {
     let selector = [];
-    for(element of path.reverse())
+    for(let element of path.reverse())
     {
-        if(element.tagName === undefined)
+        if(element && element.tagName === undefined)
             continue;
         let tag = element.tagName.toLowerCase();
         if(element.id)
@@ -201,7 +256,8 @@ function generateElementSelector(path)
     return selector;
 }
 
-function guid() {
+function guid() 
+{
   return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
     (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
   )

@@ -73,19 +73,43 @@ module.exports = __webpack_require__(2);
 
 /***/ }),
 /* 1 */
-/***/ (function(module, exports) {
+/***/ (function(module, __webpack_exports__) {
 
+"use strict";
 var url = document.URL;
+var lastUrl = void 0;
+
+var EVENTS_UPLOAD_LIMIT = 0;
 
 prepareTracker();
-attachEvents();
 
 function prepareTracker() {
     window.tracker = localStorage.getItem('tracker');
-    if (!window.tracker) initializeTracker();
-    window.tracker = JSON.parse(localStorage.getItem('tracker'));
-    console.log('Tracker Prepared', { tracker: tracker });
-    checkForNavigation();
+    if (!window.tracker) initializeTracker();else {
+        window.tracker = JSON.parse(localStorage.getItem('tracker'));
+        console.log('Tracker Prepared', { tracker: tracker });
+        checkForNavigation();
+        attachEvents();
+    }
+}
+
+function uploadEvents() {
+    fetch('/api/event', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            key: window.tracker.session,
+            events: window.tracker.events
+        })
+    }).then(function (response) {
+        return response.json();
+    }).then(function (response) {
+        console.log(response);
+        window.tracker.events = [];
+        updateLocalStorage();
+    }).catch(console.error);
 }
 
 function attachEvents() {
@@ -96,39 +120,53 @@ function attachEvents() {
     document.oninput = function (event) {
         return logEvent(event, 'InputEvent');
     };
-    window.onkeypress = function (event) {
+    window.onkeydown = function (event) {
         return logEvent(event, 'KeyboardEvent');
     };
 }
 
 function initializeTracker() {
     console.log('Tracker not present, initializing');
-    var sessionKey = guid();
-    console.log('New Tracking Session: ' + sessionKey);
-    localStorage.setItem('tracker', JSON.stringify({
-        session: sessionKey,
-        client: {
-            language: clientInformation.language,
-            userAgent: clientInformation.userAgent,
-            platform: clientInformation.platform
+
+    fetch('api/session', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
         },
-        tracks: []
-    }));
+        body: JSON.stringify({
+            client: {
+                language: clientInformation.language,
+                userAgent: clientInformation.userAgent,
+                platform: clientInformation.platform
+            }
+        })
+    }).then(function (response) {
+        return response.json();
+    }).then(function (response) {
+        var sessionKey = response.key;
+        console.log('New Tracking Session: ' + sessionKey);
+        localStorage.setItem('tracker', JSON.stringify({
+            session: sessionKey,
+            events: []
+        }));
+
+        window.tracker = JSON.parse(localStorage.getItem('tracker'));
+        console.log('Tracker Prepared', { tracker: tracker });
+        checkForNavigation();
+        attachEvents();
+    }).catch(console.error);
 }
 
 function checkForNavigation() {
     console.log('Checking for Navigation Change');
+
+    lastUrl = getLastUrl();
     console.log({ lastUrl: lastUrl, url: url });
 
-    var lastUrl = getLastUrl();
     if (lastUrl !== url) {
         console.log('Navigation change detected. Creating Navigation Event');
         localStorage.setItem('tracker_last_url', url);
-        tracker.tracks.push({
-            type: 'navigation',
-            from: lastUrl,
-            to: url
-        });
+        logEvent(new Event('Navigation'), 'Navigation');
         updateLocalStorage();
     }
 }
@@ -149,8 +187,8 @@ function logEvent(event, type) {
     console.log('Event Caught');
     console.log(event);
     console.log(data);
-    tracker.tracks.push(data);
-    updateLocalStorage();
+    tracker.events.push(data);
+    if (tracker.events.length > EVENTS_UPLOAD_LIMIT && EVENTS_UPLOAD_LIMIT != 0) uploadEvents();else updateLocalStorage();
 }
 
 function generateEventData(event, type) {
@@ -159,6 +197,7 @@ function generateEventData(event, type) {
     if (type === 'MouseEvent') data = generateMouseEventData(data, event);
     if (type === 'KeyboardEvent') data = generateKeyboardEventData(data, event);
     if (type === 'InputEvent') data = generateInputEventData(data, event);
+    if (type === 'Navigation') data = generateNavigationEventData(data, event);
 
     return data;
 }
@@ -192,7 +231,7 @@ function generateMouseEventData(data, event) {
 
     try {
         for (var _iterator = eventFields[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
-            field = _step.value;
+            var field = _step.value;
 
             data.data.cursor_position[field] = event[field];
         }
@@ -222,7 +261,7 @@ function generateKeyboardEventData(data, event) {
 
     try {
         for (var _iterator2 = eventFields[Symbol.iterator](), _step2; !(_iteratorNormalCompletion2 = (_step2 = _iterator2.next()).done); _iteratorNormalCompletion2 = true) {
-            field = _step2.value;
+            var field = _step2.value;
 
             data.data[field] = event[field];
         }
@@ -252,7 +291,7 @@ function generateInputEventData(data, event) {
 
     try {
         for (var _iterator3 = eventFields[Symbol.iterator](), _step3; !(_iteratorNormalCompletion3 = (_step3 = _iterator3.next()).done); _iteratorNormalCompletion3 = true) {
-            field = _step3.value;
+            var field = _step3.value;
 
             data.data[field] = event[field];
         }
@@ -274,7 +313,14 @@ function generateInputEventData(data, event) {
     return data;
 }
 
+function generateNavigationEventData(data, event) {
+    data.data['from'] = lastUrl;
+    data.data['to'] = url;
+    return data;
+}
+
 function updateLocalStorage() {
+    console.log('Event Length', tracker.events.length);
     localStorage.setItem('tracker', JSON.stringify(tracker));
 }
 
@@ -283,6 +329,7 @@ function getElementFromEvent(event) {
 }
 
 function generateElementInformation(element, event) {
+    if (element === null) return {};
     var tree = generateElementSelector(event.path);
     return {
         tag: element.tagName,
@@ -306,9 +353,9 @@ function generateElementSelector(path) {
 
     try {
         for (var _iterator4 = path.reverse()[Symbol.iterator](), _step4; !(_iteratorNormalCompletion4 = (_step4 = _iterator4.next()).done); _iteratorNormalCompletion4 = true) {
-            element = _step4.value;
+            var element = _step4.value;
 
-            if (element.tagName === undefined) continue;
+            if (element && element.tagName === undefined) continue;
             var tag = element.tagName.toLowerCase();
             if (element.id) tag += '#' + element.id;else {
                 var classList = element.classList.toString().replace(' ', '.');
