@@ -28,7 +28,7 @@ function uploadEvents()
 {
     if(!EVENTS_UPLOAD)
         return;
-    
+
     fetch('/api/event', {
         method: 'POST',
         headers:{
@@ -116,13 +116,13 @@ function getLastUrl()
 function logEvent(event, type)
 {
     let data = generateEventData(event, type);
-    console.log('Event Caught', logEventData);
-    console.log(event);
-    console.log(data);
+    // console.log('Event Caught', logEventData);
+    // console.log(event);
+    // console.log(data);
     if(logEventData)
     {
         tracker.events.push(data);
-        if(tracker.events.length > EVENTS_UPLOAD_LIMIT)
+        if(tracker.events.length > EVENTS_UPLOAD_LIMIT && EVENTS_UPLOAD)
             uploadEvents();
         else
             updateLocalStorage();
@@ -186,11 +186,13 @@ function generateMouseEventData(data,event)
 
 function generateUserInputData(data, event, element)
 {
-    if(userIsTyping === null)
+    let allowedElements = ['HTML','BODY'];
+    let isAllowedThrough = allowedElements.indexOf(element.tagName) > -1;
+    if(userIsTyping === null && !isAllowedThrough)
         markElementForInput(element);
-    if(userIsTyping)
+    if(userIsTyping || isAllowedThrough)
         userEventData.push(generateKeyboardEventData({}, event))
-    if(!userIsTyping)
+    if(!userIsTyping || isAllowedThrough)
     {
         userIsTyping = null;
         data.data = userEventData;
@@ -271,7 +273,7 @@ function generateElementInformation(element,event)
     if(element === null) 
         return {};
     let tree = generateElementSelector(event.path);
-    return {
+    let elementData =  {
         tag: element.tagName,
         selector: tree.join(' '),
         type: element.type || '',
@@ -279,10 +281,9 @@ function generateElementInformation(element,event)
         value: element.value || null,
         checked: element.checked,
         selected: element.selected,
-        innerHTML: element.innerHTML,
-        outerHTML: element.outerHTML,
         position: element.getBoundingClientRect()
     };
+    return elementData;
 }
 
 function generateElementSelector(path)
