@@ -5,7 +5,7 @@ let logEventData = true;
 let lastUrl;
 let uploadTimer = null;
 
-const EVENTS_UPLOAD = false;
+const EVENTS_UPLOAD = true;
 const EVENTS_UPLOAD_LIMIT = 10;
 const EVENTS_UPLOAD_RATE = 30000; // miliseconds
 
@@ -26,7 +26,7 @@ function prepareTracker()
 
 function uploadEvents()
 {
-    if(!EVENTS_UPLOAD)
+    if(!EVENTS_UPLOAD && tracker.events.length === 0)
         return;
 
     fetch('/api/event', {

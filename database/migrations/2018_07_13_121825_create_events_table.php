@@ -15,7 +15,7 @@ class CreateEventsTable extends Migration
     {
         Schema::create('events', function (Blueprint $table) {
             $table->increments('id');
-            $table->string('key')->index();
+            $table->uuid('key');
             $table->string('type')->index();
             $table->string('eventType')->index();
             $table->string('url')->index();
@@ -24,6 +24,10 @@ class CreateEventsTable extends Migration
             $table->jsonb('element');
             $table->jsonb('client');
             $table->timestamps();
+
+            $table->foreign('key')
+                  ->references('key')
+                  ->on('sessions');
         });
     }
 
