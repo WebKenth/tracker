@@ -45,6 +45,7 @@ class EventController extends Controller
 
             $event->key = $sessionKey;
             $event->type = $data['type'];
+            $event->eventType = $data['eventType'];
             $event->url = $data['url'];
             $event->timestamp = $data['timestamp'];
             $event->data = $data['data'];

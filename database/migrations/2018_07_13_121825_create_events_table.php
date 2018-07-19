@@ -17,6 +17,7 @@ class CreateEventsTable extends Migration
             $table->increments('id');
             $table->string('key')->index();
             $table->string('type')->index();
+            $table->string('eventType')->index();
             $table->string('url')->index();
             $table->float('timestamp', 64, 10)->index();
             $table->jsonb('data');

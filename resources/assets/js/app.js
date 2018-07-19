@@ -1,7 +1,13 @@
 let url = document.URL;
+let userIsTyping = null;
+let userEventData = [];
+let logEventData = true;
 let lastUrl;
+let uploadTimer = null;
 
-const EVENTS_UPLOAD_LIMIT = 0;
+const EVENTS_UPLOAD = false;
+const EVENTS_UPLOAD_LIMIT = 10;
+const EVENTS_UPLOAD_RATE = 30000; // miliseconds
 
 prepareTracker();
 
@@ -20,6 +26,9 @@ function prepareTracker()
 
 function uploadEvents()
 {
+    if(!EVENTS_UPLOAD)
+        return;
+    
     fetch('/api/event', {
         method: 'POST',
         headers:{
@@ -41,8 +50,9 @@ function attachEvents()
 {
     console.log('Attaching Events')
     document.onclick = event => logEvent(event, 'MouseEvent')
-    document.oninput = event => logEvent(event, 'InputEvent')
     window.onkeydown = event => logEvent(event, 'KeyboardEvent')
+    if(EVENTS_UPLOAD)
+        uploadTimer = setTimeout(uploadEvents, EVENTS_UPLOAD_RATE);
 }
 
 function initializeTracker()
@@ -91,6 +101,7 @@ function checkForNavigation()
         localStorage.setItem('tracker_last_url', url);
         logEvent(new Event('Navigation'), 'Navigation');
         updateLocalStorage();
+        uploadEvents();
     }
 }
 
@@ -104,43 +115,44 @@ function getLastUrl()
 
 function logEvent(event, type)
 {
-    let now = new Date();
-    let clickedElement = getElementFromEvent(event);
-    let element = generateElementInformation(clickedElement,event);
-
     let data = generateEventData(event, type);
-    data.element = generateElementInformation(clickedElement,event);
-    console.log('Event Caught');
+    console.log('Event Caught', logEventData);
     console.log(event);
     console.log(data);
-    tracker.events.push(data);
-    if(tracker.events.length > EVENTS_UPLOAD_LIMIT && EVENTS_UPLOAD_LIMIT != 0)
-        uploadEvents();
-    else
-        updateLocalStorage();
+    if(logEventData)
+    {
+        tracker.events.push(data);
+        if(tracker.events.length > EVENTS_UPLOAD_LIMIT)
+            uploadEvents();
+        else
+            updateLocalStorage();
+    }
 }
 
 function generateEventData(event, type)
 {
-    let data = initializeEventData(event);
+    let data = initializeEventData(event, type);
+    let clickedElement = getElementFromEvent(event);
+    let element = generateElementInformation(clickedElement,event);
 
     if(type === 'MouseEvent')
         data = generateMouseEventData(data, event);
     if(type === 'KeyboardEvent')
-        data = generateKeyboardEventData(data, event);
-    if(type === 'InputEvent')
-        data = generateInputEventData(data, event);
+        data = generateUserInputData(data, event, clickedElement);
     if(type === 'Navigation')
         data = generateNavigationEventData(data, event);
+
+    data.element = generateElementInformation(clickedElement,event);
 
     return data;
 }
 
-function initializeEventData(event)
+function initializeEventData(event, type)
 {
     let now = new Date();
     let data = {
-        type      : event.type,
+        type      : type,
+        eventType : event.type,
         timestamp : event.timeStamp,
         url       : url,
         client: {
@@ -172,11 +184,48 @@ function generateMouseEventData(data,event)
     return data;
 }
 
+function generateUserInputData(data, event, element)
+{
+    if(userIsTyping === null)
+        markElementForInput(element);
+    if(userIsTyping)
+        userEventData.push(generateKeyboardEventData({}, event))
+    if(!userIsTyping)
+    {
+        userIsTyping = null;
+        data.data = userEventData;
+        userEventData = [];
+    }
+    return data;
+}
+function markElementForInput(element)
+{
+    userIsTyping = true;
+    logEventData = false;
+    let attributeIsset = element.getAttribute('accepting-input');
+    if(!attributeIsset)
+    {
+        element.addEventListener('blur', markElementInputStop, true);
+        element.setAttribute('accepting-input', 'true');
+    }
+}
+
+function markElementInputStop(event)
+{
+    let element = getElementFromEvent(event);
+    element.removeAttribute('accepting-input');
+    element.removeEventListener('blur', markElementInputStop, true);
+    userIsTyping = false;
+    logEventData = true;
+    logEvent(event, 'KeyboardEvent');
+}
+
 function generateKeyboardEventData(data, event)
 {
     let eventFields = [
         'key',
         'code',
+        'keyCode',
         'charCode',
         'altKey',
         'ctrlKey',
@@ -184,7 +233,7 @@ function generateKeyboardEventData(data, event)
         'shiftKey',
     ];
     for(let field of eventFields)
-        data.data[field] = event[field];
+        data[field] = event[field];
     return data;
 }
 
